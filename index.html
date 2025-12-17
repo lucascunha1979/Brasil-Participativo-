@@ -11,6 +11,8 @@
 <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 <!-- html2pdf -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+<!-- SheetJS (XLSX download) -->
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 
 <style>
 :root{ --bg:#ffffff; --panel:#f4f5f7; --text:#111; --muted:#555; --accent:#e11d2e; }
@@ -27,7 +29,7 @@ select{padding:8px 10px;border:1px solid #b9bdc0;border-radius:8px;background:va
 .btn-muted{background:#999;color:#fff}
 .btn-light{background:#e8eaed;color:#111;border:1px solid #cfd1d4}
 .topbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-.right{margin-left:auto;display:flex;gap:8px}
+.right{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 #valorTotal{background:var(--accent);color:#fff;padding:14px;border-radius:12px;text-align:center;font-size:28px;font-weight:700}
 .kpis{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px}
 .kpi{background:var(--panel);border:1px solid #d6d7da;border-radius:10px;padding:10px 12px;min-width:180px}
@@ -68,6 +70,7 @@ tfoot td{font-weight:700;background:#fafafa}
     </div>
     <div class="right">
       <button id="btnPdf" class="btn btn-accent" title="Baixar PDF com tabelas">📄 PDF (tabelas)</button>
+      <button id="btnXlsx" class="btn btn-light" title="Baixar tabelas em Excel (XLSX)">⬇️ XLSX (tabelas)</button>
     </div>
   </div>
 
@@ -170,6 +173,21 @@ let DRILL = {
 const PIE_TOP = 12;
 const BAR_MAXH = 1600;
 
+// ✅ legenda vertical à direita + sem textos fora da pizza (evita embolar)
+const PIE_LAYOUT = {
+  paper_bgcolor:"rgba(0,0,0,0)",
+  plot_bgcolor:"rgba(0,0,0,0)",
+  margin:{l:10,r:420,t:10,b:10},
+  legend:{
+    orientation:"v",
+    x:1.02, xanchor:"left",
+    y:1,   yanchor:"top",
+    font:{size:12},
+    itemclick:false,
+    itemdoubleclick:false
+  }
+};
+
 Papa.parse(CSV_FILE,{
   download:true, header:true, skipEmptyLines:true,
   complete:(res)=>{
@@ -224,6 +242,7 @@ function initFilters(){
   };
 
   btnPdf.onclick = () => makePDF();
+  btnXlsx.onclick = () => exportTablesAsXLSX();
 }
 
 function actRows(){
@@ -306,7 +325,7 @@ function renderKPIsAndResumo(){
     : `Selecionadas: ${selLoc} de ${totalLoc}`;
 }
 
-/* legendas das pizzas ao lado */
+/* pizzas: legenda vertical à direita + sem label fora */
 function piePlot(divId, key, topN=PIE_TOP){
   const aFull = aggBy(key);
   const total = aFull.reduce((s,x)=>s+x.v,0);
@@ -320,21 +339,24 @@ function piePlot(divId, key, topN=PIE_TOP){
   }
 
   const labels = a.map(x=>x.k);
-  const hover = a.map(x => `${x.k}<br><b>${BRL(x.v)}</b><br>Qtd: ${x.n.toLocaleString("pt-BR")}<br>% do total: ${pct2(total>0?(x.v/total*100):0)}%`);
+  const values = a.map(x=>x.v);
+
+  const hover = a.map(x => {
+    const p = total>0 ? (x.v/total*100) : 0;
+    return `${x.k}<br><b>${BRL(x.v)}</b><br>Qtd: ${x.n.toLocaleString("pt-BR")}<br>% do total: ${pct2(p)}%`;
+  });
 
   Plotly.newPlot(divId,[{
     labels,
-    values: a.map(x=>x.v),
+    values,
     type:"pie",
     hole:.25,
-    textinfo:"label+percent",
+    // ✅ remove texto fora (era o que “embolava” mais)
+    textinfo:"percent",
+    textposition:"inside",
+    insidetextorientation:"radial",
     hovertemplate: hover.map(h=>h+"<extra></extra>")
-  }],{
-    paper_bgcolor:"rgba(0,0,0,0)",
-    plot_bgcolor:"rgba(0,0,0,0)",
-    margin:{l:10,r:260,t:10,b:10},
-    legend:{orientation:"v", x:1.02, y:0.5, xanchor:"left", yanchor:"middle", font:{size:12}}
-  },{responsive:true});
+  }], PIE_LAYOUT, {responsive:true});
 
   const el = document.getElementById(divId);
   el.on('plotly_click', d=>{
@@ -351,7 +373,7 @@ function barPlotHorizontal(divId, key){
 
   const data=[{
     x: a.map(x=>x.v),
-    y: a.map(x=>String(x.k).length>110?String(x.k).slice(0,109)+"…":String(x.k)),
+    y: a.map(x=>ellips(x.k, 110)),
     type:"bar",
     orientation:"h",
     marker:{color:"#e11d2e"},
@@ -395,8 +417,8 @@ function renderAll(){
   buildTablesForPDF();
 }
 
-/* ---------- PDF (só tabelas) ---------- */
-function buildOneTable(rows, key){
+/* ---------- TABELAS (base) ---------- */
+function tableRowsForExport(rows, key){
   const totalValor = rows.reduce((a,r)=>a+r.Valor,0);
 
   const map = new Map();
@@ -408,10 +430,21 @@ function buildOneTable(rows, key){
     o.val += r.Valor;
   });
 
-  const arr = [...map.entries()].map(([k,o])=>{
+  return [...map.entries()].map(([k,o])=>{
     const share = totalValor>0 ? (o.val/totalValor*100) : 0;
-    return {categoria:k, qtd:o.n, valor:o.val, share};
-  }).sort((a,b)=>b.valor-a.valor);
+    return {
+      categoria: k,
+      quantidade: o.n,
+      soma_valor: o.val,
+      pct_total_valor: Math.round(share*100)/100
+    };
+  }).sort((a,b)=>b.soma_valor-a.soma_valor);
+}
+
+/* ---------- PDF (só tabelas) ---------- */
+function buildOneTable(rows, key){
+  const totalValor = rows.reduce((a,r)=>a+r.Valor,0);
+  const arr = tableRowsForExport(rows, key);
 
   let html = `<h2>${key}</h2><table class="report"><thead>
   <tr><th>Categoria</th><th>Quantidade</th><th>Soma (R$)</th><th>% do total (valor)</th></tr>
@@ -420,9 +453,9 @@ function buildOneTable(rows, key){
   arr.forEach(r=>{
     html += `<tr>
       <td>${r.categoria}</td>
-      <td>${r.qtd.toLocaleString("pt-BR")}</td>
-      <td>${BRL(r.valor)}</td>
-      <td>${pct2(r.share)}%</td>
+      <td>${r.quantidade.toLocaleString("pt-BR")}</td>
+      <td>${BRL(r.soma_valor)}</td>
+      <td>${pct2(r.pct_total_valor)}%</td>
     </tr>`;
   });
 
@@ -458,6 +491,24 @@ function makePDF(){
   html2pdf().set(opt).from(node).save().then(()=>{
     node.classList.remove("show");
   });
+}
+
+/* ---------- XLSX (tabelas) ---------- */
+function exportTablesAsXLSX(){
+  const f = actRows();
+  const keys = ["AGREGAÇÃO","RECONHECIMENTO","TIPO","FONTE","EIXO","GESTOR_SIGLA_NOME","SUBEIXO","FINALIDADE"];
+
+  const wb = XLSX.utils.book_new();
+
+  keys.forEach(k=>{
+    const tab = tableRowsForExport(f, k);
+    if (!tab.length) return;
+    const ws = XLSX.utils.json_to_sheet(tab);
+    const sheetName = String(k).slice(0, 31);
+    XLSX.utils.book_append_sheet(wb, ws, sheetName);
+  });
+
+  XLSX.writeFile(wb, "tabelas_brasil_participativo.xlsx");
 }
 </script>
 </body>
