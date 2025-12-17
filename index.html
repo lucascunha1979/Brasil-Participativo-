@@ -125,7 +125,7 @@ tfoot td{font-weight:700;background:#fafafa}
 
 <script>
 /* ========= AJUSTE AQUI ========= */
-const CSV_FILE = "brasilparticipativo_até15_12_25_v2.csv"; // ou URL raw (ex.: raw.githack / raw.githubusercontent)
+const CSV_FILE = "brasilparticipativo_até15_12_25_v2.csv"; // (GitHub Pages) deixe o CSV na mesma pasta do index.html
 /* =============================== */
 
 const nfBR2 = new Intl.NumberFormat("pt-BR",{style:"currency",currency:"BRL",minimumFractionDigits:2,maximumFractionDigits:2});
@@ -146,7 +146,6 @@ function parseNum(x){
   if (x==null) return 0;
   const s = String(x).trim();
   if (!s) return 0;
-  // aceita tanto "1234.56" quanto "1.234,56"
   const t = s.replace(/\s/g,"");
   const looksBR = /,\d{1,2}$/.test(t);
   const cleaned = looksBR ? t.replace(/\./g,"").replace(",",".") : t;
@@ -168,8 +167,8 @@ let DRILL = {
   "FINALIDADE": null
 };
 
-const PIE_TOP = 12;     // top N + "Outros" nos pies (para não ficar ilegível)
-const BAR_MAXH = 1600;  // altura máxima para barras horizontais
+const PIE_TOP = 12;
+const BAR_MAXH = 1600;
 
 Papa.parse(CSV_FILE,{
   download:true, header:true, skipEmptyLines:true,
@@ -185,7 +184,7 @@ Papa.parse(CSV_FILE,{
       "FINALIDADE": normText(r["FINALIDADE"]),
       "GESTOR_SIGLA_NOME": normText(r["GESTOR_SIGLA_NOME"]),
       Valor: parseNum(r["PAGO_CONCEDIDO_NUM"])
-    })).filter(x => x["LOCALIDADE"]); // mantém linhas minimamente válidas
+    })).filter(x => x["LOCALIDADE"]);
 
     initFilters();
     renderAll();
@@ -194,13 +193,12 @@ Papa.parse(CSV_FILE,{
 });
 
 function initFilters(){
-  // carregar localidades (multi-select)
   const locs = [...new Set(RAW.map(d=>d["LOCALIDADE"]))].filter(Boolean).sort((a,b)=>a.localeCompare(b,"pt-BR"));
   selLocalidade.innerHTML = locs.map(v => `<option value="${v}">${v}</option>`).join("");
 
   selLocalidade.onchange = () => {
     const selected = [...selLocalidade.selectedOptions].map(o=>o.value);
-    FILTERS.Localidades = new Set(selected); // vazio = todas
+    FILTERS.Localidades = new Set(selected);
     renderAll();
   };
 
@@ -214,12 +212,11 @@ function initFilters(){
   btnClearLoc.onclick = (e) => {
     e.preventDefault();
     [...selLocalidade.options].forEach(o => o.selected = false);
-    FILTERS.Localidades = new Set(); // todas
+    FILTERS.Localidades = new Set();
     renderAll();
   };
 
   btnReset.onclick = () => {
-    // limpa drill + localidades
     Object.keys(DRILL).forEach(k => DRILL[k]=null);
     FILTERS.Localidades = new Set();
     [...selLocalidade.options].forEach(o => o.selected = false);
@@ -290,7 +287,6 @@ function renderKPIsAndResumo(){
   kpiEixo.textContent = uniq(f.map(x=>x["EIXO"])).toLocaleString("pt-BR");
   kpiGest.textContent = uniq(f.map(x=>x["GESTOR_SIGLA_NOME"])).toLocaleString("pt-BR");
 
-  // card resumo (contagens)
   hier.innerHTML = `
     <div class="kpis" style="margin-top:0">
       <div class="kpi"><div class="small">AGREGAÇÃO</div><b>${uniq(f.map(x=>x["AGREGAÇÃO"]))}</b></div>
@@ -303,7 +299,6 @@ function renderKPIsAndResumo(){
     </div>
   `;
 
-  // info do select
   const totalLoc = selLocalidade.options.length;
   const selLoc = FILTERS.Localidades.size===0 ? totalLoc : FILTERS.Localidades.size;
   locInfo.textContent = (FILTERS.Localidades.size===0)
@@ -311,11 +306,11 @@ function renderKPIsAndResumo(){
     : `Selecionadas: ${selLoc} de ${totalLoc}`;
 }
 
+/* legendas das pizzas ao lado */
 function piePlot(divId, key, topN=PIE_TOP){
   const aFull = aggBy(key);
   const total = aFull.reduce((s,x)=>s+x.v,0);
 
-  // topN + Outros (para não virar pizza ilegível)
   let a = aFull;
   if (aFull.length > topN){
     const top = aFull.slice(0, topN);
@@ -337,13 +332,14 @@ function piePlot(divId, key, topN=PIE_TOP){
   }],{
     paper_bgcolor:"rgba(0,0,0,0)",
     plot_bgcolor:"rgba(0,0,0,0)",
-    legend:{orientation:"h"}
+    margin:{l:10,r:260,t:10,b:10},
+    legend:{orientation:"v", x:1.02, y:0.5, xanchor:"left", yanchor:"middle", font:{size:12}}
   },{responsive:true});
 
   const el = document.getElementById(divId);
   el.on('plotly_click', d=>{
     const label = labels[d.points[0].pointIndex];
-    if (label==="Outros") return; // não filtra em "Outros"
+    if (label==="Outros") return;
     DRILL[key] = (DRILL[key]===label) ? null : label;
     renderAll();
   });
@@ -351,11 +347,11 @@ function piePlot(divId, key, topN=PIE_TOP){
 
 function barPlotHorizontal(divId, key){
   const a = aggBy(key);
-
   const h = Math.min(BAR_MAXH, Math.max(560, 22*a.length + 140));
+
   const data=[{
     x: a.map(x=>x.v),
-    y: a.map(x=>ellips(x.k, 110)),
+    y: a.map(x=>String(x.k).length>110?String(x.k).slice(0,109)+"…":String(x.k)),
     type:"bar",
     orientation:"h",
     marker:{color:"#e11d2e"},
