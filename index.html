@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<title>Painel Brasil Participativo</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+
+<!-- Plotly -->
+<script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+<!-- PapaParse -->
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+<!-- html2pdf -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+
+<style>
+:root{ --bg:#ffffff; --panel:#f4f5f7; --text:#111; --muted:#555; --accent:#e11d2e; }
+*{box-sizing:border-box}
+body{margin:0;padding:18px;background:var(--bg);color:var(--text);font-family:Arial,Helvetica,sans-serif}
+.wrap{max-width:1500px;margin:0 auto}
+h1{margin:0 0 6px;font-size:26px}
+h2{margin:0 0 10px;font-size:20px;color:var(--accent)}
+.meta{color:var(--muted);margin-bottom:10px}
+.card{background:var(--panel);border:1px solid #d6d7da;border-radius:12px;padding:16px;margin:0 0 18px}
+select{padding:8px 10px;border:1px solid #b9bdc0;border-radius:8px;background:var(--bg);color:var(--text);margin-right:10px}
+.btn{padding:8px 12px;border-radius:8px;border:0;cursor:pointer;font-weight:600}
+.btn-accent{background:var(--accent);color:#fff}
+.btn-muted{background:#999;color:#fff}
+.btn-light{background:#e8eaed;color:#111;border:1px solid #cfd1d4}
+.topbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.right{margin-left:auto;display:flex;gap:8px}
+#valorTotal{background:var(--accent);color:#fff;padding:14px;border-radius:12px;text-align:center;font-size:28px;font-weight:700}
+.kpis{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px}
+.kpi{background:var(--panel);border:1px solid #d6d7da;border-radius:10px;padding:10px 12px;min-width:180px}
+.kpi b{display:block;font-size:18px;margin-top:4px}
+.small{font-size:12px;color:var(--muted)}
+.badges{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.badge{background:#e8eaed;color:#111;border-radius:20px;padding:4px 10px;font-size:12px;border:1px solid #cfd1d4}
+.badge .x{margin-left:6px;cursor:pointer}
+
+/* gráficos */
+.chart{height:440px}
+.chart-v{overflow-x:auto}
+.chart-h{height:560px; overflow-y:auto}
+
+/* select múltiplo */
+.sel-multi{min-width:360px; max-width:520px}
+.helper{display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:8px}
+
+/* TABELAS para PDF */
+#tables{display:none}
+#tables.show{display:block}
+#tables h2{color:#000;margin:16px 0 8px}
+table.report{border-collapse:collapse;width:100%;font-size:11px}
+table.report th, table.report td{border:1px solid #bbb;padding:6px;text-align:left;vertical-align:top}
+table.report th{background:#efefef}
+tfoot td{font-weight:700;background:#fafafa}
+.source{margin-top:10px;color:#333;font-size:11px}
+</style>
+</head>
+
+<body>
+<div class="wrap" id="app">
+
+  <div class="topbar">
+    <div>
+      <h1>Painel Brasil Participativo</h1>
+      <div class="meta">Fonte: Brasil Participativo – Governo Federal</div>
+    </div>
+    <div class="right">
+      <button id="btnPdf" class="btn btn-accent" title="Baixar PDF com tabelas">📄 PDF (tabelas)</button>
+    </div>
+  </div>
+
+  <div id="valorTotal">Total: R$ 0,00</div>
+
+  <div class="kpis">
+    <div class="kpi"><div class="small">Registros</div><b id="kpiReg">–</b></div>
+    <div class="kpi"><div class="small">Localidades</div><b id="kpiLoc">–</b></div>
+    <div class="kpi"><div class="small">Eixos</div><b id="kpiEixo">–</b></div>
+    <div class="kpi"><div class="small">Gestores</div><b id="kpiGest">–</b></div>
+  </div>
+
+  <div class="card">
+    <div class="topbar">
+      <div style="min-width:520px">
+        <b>LOCALIDADE (filtro principal):</b><br/>
+        <select id="selLocalidade" class="sel-multi" multiple size="8"></select>
+
+        <div class="helper">
+          <button id="btnAllLoc" class="btn btn-light">Selecionar todas</button>
+          <button id="btnClearLoc" class="btn btn-light">Limpar seleção</button>
+          <span class="small" id="locInfo">–</span>
+        </div>
+      </div>
+
+      <div class="right">
+        <button id="btnReset" class="btn btn-muted">🔄 Reset filtros</button>
+      </div>
+    </div>
+
+    <div class="badges" id="badges"></div>
+  </div>
+
+  <div class="card">
+    <h2>Resumo (contagens)</h2>
+    <div id="hier"></div>
+  </div>
+
+  <div class="card"><h2>AGREGAÇÃO</h2><div id="chartAgregacao" class="chart chart-v"></div></div>
+  <div class="card"><h2>RECONHECIMENTO</h2><div id="chartReconhecimento" class="chart chart-v"></div></div>
+  <div class="card"><h2>TIPO</h2><div id="chartTipo" class="chart chart-v"></div></div>
+  <div class="card"><h2>FONTE</h2><div id="chartFonte" class="chart chart-v"></div></div>
+  <div class="card"><h2>EIXO</h2><div id="chartEixo" class="chart chart-v"></div></div>
+
+  <div class="card"><h2>GESTOR (SIGLA + NOME)</h2><div id="chartGestor" class="chart chart-h"></div></div>
+  <div class="card"><h2>SUBEIXO</h2><div id="chartSubeixo" class="chart chart-h"></div></div>
+  <div class="card"><h2>FINALIDADE</h2><div id="chartFinalidade" class="chart chart-h"></div></div>
+
+  <div class="small">Clique em qualquer gráfico para filtrar; clique novamente para desfazer. “Reset filtros” limpa tudo.</div>
+
+  <!-- Tabelas para PDF -->
+  <div id="tables"></div>
+
+</div>
+
+<script>
+/* ========= AJUSTE AQUI ========= */
+const CSV_FILE = "brasilparticipativo_até15_12_25_v2.csv"; // ou URL raw (ex.: raw.githack / raw.githubusercontent)
+/* =============================== */
+
+const nfBR2 = new Intl.NumberFormat("pt-BR",{style:"currency",currency:"BRL",minimumFractionDigits:2,maximumFractionDigits:2});
+const BRL = v => nfBR2.format(Math.round((v + Number.EPSILON)*100)/100);
+const pct2 = v => (isFinite(v)? (v.toFixed(2).replace(".",",")) : "0,00");
+
+const ellips = (txt, len=60) => {
+  const s = String(txt||"");
+  return s.length>len ? s.slice(0,len-1)+"…" : s;
+};
+
+function normText(x){
+  if (x==null) return "Não informado";
+  const s = String(x).trim();
+  return s ? s : "Não informado";
+}
+function parseNum(x){
+  if (x==null) return 0;
+  const s = String(x).trim();
+  if (!s) return 0;
+  // aceita tanto "1234.56" quanto "1.234,56"
+  const t = s.replace(/\s/g,"");
+  const looksBR = /,\d{1,2}$/.test(t);
+  const cleaned = looksBR ? t.replace(/\./g,"").replace(",",".") : t;
+  const n = parseFloat(cleaned);
+  return isFinite(n) ? n : 0;
+}
+
+/* ========= estado ========= */
+let RAW = [];
+let FILTERS = { Localidades: new Set() }; // vazio = todas
+let DRILL = {
+  "AGREGAÇÃO": null,
+  "RECONHECIMENTO": null,
+  "TIPO": null,
+  "FONTE": null,
+  "EIXO": null,
+  "GESTOR_SIGLA_NOME": null,
+  "SUBEIXO": null,
+  "FINALIDADE": null
+};
+
+const PIE_TOP = 12;     // top N + "Outros" nos pies (para não ficar ilegível)
+const BAR_MAXH = 1600;  // altura máxima para barras horizontais
+
+Papa.parse(CSV_FILE,{
+  download:true, header:true, skipEmptyLines:true,
+  complete:(res)=>{
+    RAW = res.data.map(r => ({
+      "AGREGAÇÃO": normText(r["AGREGAÇÃO"]),
+      "LOCALIDADE": normText(r["LOCALIDADE"]),
+      "RECONHECIMENTO": normText(r["RECONHECIMENTO"]),
+      "TIPO": normText(r["TIPO"]),
+      "FONTE": normText(r["FONTE"]),
+      "EIXO": normText(r["EIXO"]),
+      "SUBEIXO": normText(r["SUBEIXO"]),
+      "FINALIDADE": normText(r["FINALIDADE"]),
+      "GESTOR_SIGLA_NOME": normText(r["GESTOR_SIGLA_NOME"]),
+      Valor: parseNum(r["PAGO_CONCEDIDO_NUM"])
+    })).filter(x => x["LOCALIDADE"]); // mantém linhas minimamente válidas
+
+    initFilters();
+    renderAll();
+  },
+  error:(e)=>alert("Erro ao carregar CSV: "+e.message)
+});
+
+function initFilters(){
+  // carregar localidades (multi-select)
+  const locs = [...new Set(RAW.map(d=>d["LOCALIDADE"]))].filter(Boolean).sort((a,b)=>a.localeCompare(b,"pt-BR"));
+  selLocalidade.innerHTML = locs.map(v => `<option value="${v}">${v}</option>`).join("");
+
+  selLocalidade.onchange = () => {
+    const selected = [...selLocalidade.selectedOptions].map(o=>o.value);
+    FILTERS.Localidades = new Set(selected); // vazio = todas
+    renderAll();
+  };
+
+  btnAllLoc.onclick = (e) => {
+    e.preventDefault();
+    [...selLocalidade.options].forEach(o => o.selected = true);
+    FILTERS.Localidades = new Set([...selLocalidade.options].map(o=>o.value));
+    renderAll();
+  };
+
+  btnClearLoc.onclick = (e) => {
+    e.preventDefault();
+    [...selLocalidade.options].forEach(o => o.selected = false);
+    FILTERS.Localidades = new Set(); // todas
+    renderAll();
+  };
+
+  btnReset.onclick = () => {
+    // limpa drill + localidades
+    Object.keys(DRILL).forEach(k => DRILL[k]=null);
+    FILTERS.Localidades = new Set();
+    [...selLocalidade.options].forEach(o => o.selected = false);
+    renderAll();
+  };
+
+  btnPdf.onclick = () => makePDF();
+}
+
+function actRows(){
+  return RAW.filter(r => {
+    const okLoc = (FILTERS.Localidades.size===0) || FILTERS.Localidades.has(r["LOCALIDADE"]);
+    if (!okLoc) return false;
+
+    for (const [k,v] of Object.entries(DRILL)){
+      if (v && r[k] !== v) return false;
+    }
+    return true;
+  });
+}
+
+function renderBadges(){
+  const b=[];
+
+  if (FILTERS.Localidades.size===0){
+    b.push(`<span class="badge">LOCALIDADE: Todas</span>`);
+  } else if (FILTERS.Localidades.size<=3){
+    b.push(`<span class="badge">LOCALIDADE: ${[...FILTERS.Localidades].join(", ")}</span>`);
+  } else {
+    b.push(`<span class="badge">LOCALIDADE: ${FILTERS.Localidades.size} selecionadas</span>`);
+  }
+
+  for (const [k,v] of Object.entries(DRILL)){
+    if (!v) continue;
+    b.push(`<span class="badge">${k}: ${v}<span class="x" data-k="${k}">✕</span></span>`);
+  }
+
+  badges.innerHTML = b.join("");
+  badges.querySelectorAll(".x").forEach(x => x.onclick = (e) => {
+    const k = e.target.dataset.k;
+    DRILL[k] = null;
+    renderAll();
+  });
+}
+
+function aggBy(key){
+  const m = new Map();
+  actRows().forEach(r => {
+    const k = r[key] || "Não informado";
+    if (!m.has(k)) m.set(k, {sumVal:0, n:0});
+    const o = m.get(k);
+    o.sumVal += r.Valor;
+    o.n += 1;
+  });
+  return [...m.entries()].map(([k,o]) => ({k, v:o.sumVal, n:o.n}))
+                        .sort((a,b)=>b.v-a.v);
+}
+
+function renderKPIsAndResumo(){
+  const f = actRows();
+  const uniq = arr => new Set(arr).size;
+
+  const total = f.reduce((a,r)=>a+r.Valor,0);
+  valorTotal.textContent = `Total: ${BRL(total)}`;
+
+  kpiReg.textContent  = f.length.toLocaleString("pt-BR");
+  kpiLoc.textContent  = uniq(f.map(x=>x["LOCALIDADE"])).toLocaleString("pt-BR");
+  kpiEixo.textContent = uniq(f.map(x=>x["EIXO"])).toLocaleString("pt-BR");
+  kpiGest.textContent = uniq(f.map(x=>x["GESTOR_SIGLA_NOME"])).toLocaleString("pt-BR");
+
+  // card resumo (contagens)
+  hier.innerHTML = `
+    <div class="kpis" style="margin-top:0">
+      <div class="kpi"><div class="small">AGREGAÇÃO</div><b>${uniq(f.map(x=>x["AGREGAÇÃO"]))}</b></div>
+      <div class="kpi"><div class="small">RECONHECIMENTO</div><b>${uniq(f.map(x=>x["RECONHECIMENTO"]))}</b></div>
+      <div class="kpi"><div class="small">TIPO</div><b>${uniq(f.map(x=>x["TIPO"]))}</b></div>
+      <div class="kpi"><div class="small">FONTE</div><b>${uniq(f.map(x=>x["FONTE"]))}</b></div>
+      <div class="kpi"><div class="small">EIXO</div><b>${uniq(f.map(x=>x["EIXO"]))}</b></div>
+      <div class="kpi"><div class="small">SUBEIXO</div><b>${uniq(f.map(x=>x["SUBEIXO"]))}</b></div>
+      <div class="kpi"><div class="small">FINALIDADE</div><b>${uniq(f.map(x=>x["FINALIDADE"]))}</b></div>
+    </div>
+  `;
+
+  // info do select
+  const totalLoc = selLocalidade.options.length;
+  const selLoc = FILTERS.Localidades.size===0 ? totalLoc : FILTERS.Localidades.size;
+  locInfo.textContent = (FILTERS.Localidades.size===0)
+    ? `Mostrando: todas (${totalLoc})`
+    : `Selecionadas: ${selLoc} de ${totalLoc}`;
+}
+
+function piePlot(divId, key, topN=PIE_TOP){
+  const aFull = aggBy(key);
+  const total = aFull.reduce((s,x)=>s+x.v,0);
+
+  // topN + Outros (para não virar pizza ilegível)
+  let a = aFull;
+  if (aFull.length > topN){
+    const top = aFull.slice(0, topN);
+    const rest = aFull.slice(topN);
+    const outros = {k:"Outros", v: rest.reduce((s,x)=>s+x.v,0), n: rest.reduce((s,x)=>s+x.n,0)};
+    a = [...top, outros];
+  }
+
+  const labels = a.map(x=>x.k);
+  const hover = a.map(x => `${x.k}<br><b>${BRL(x.v)}</b><br>Qtd: ${x.n.toLocaleString("pt-BR")}<br>% do total: ${pct2(total>0?(x.v/total*100):0)}%`);
+
+  Plotly.newPlot(divId,[{
+    labels,
+    values: a.map(x=>x.v),
+    type:"pie",
+    hole:.25,
+    textinfo:"label+percent",
+    hovertemplate: hover.map(h=>h+"<extra></extra>")
+  }],{
+    paper_bgcolor:"rgba(0,0,0,0)",
+    plot_bgcolor:"rgba(0,0,0,0)",
+    legend:{orientation:"h"}
+  },{responsive:true});
+
+  const el = document.getElementById(divId);
+  el.on('plotly_click', d=>{
+    const label = labels[d.points[0].pointIndex];
+    if (label==="Outros") return; // não filtra em "Outros"
+    DRILL[key] = (DRILL[key]===label) ? null : label;
+    renderAll();
+  });
+}
+
+function barPlotHorizontal(divId, key){
+  const a = aggBy(key);
+
+  const h = Math.min(BAR_MAXH, Math.max(560, 22*a.length + 140));
+  const data=[{
+    x: a.map(x=>x.v),
+    y: a.map(x=>ellips(x.k, 110)),
+    type:"bar",
+    orientation:"h",
+    marker:{color:"#e11d2e"},
+    text: a.map(x=>x.n.toLocaleString("pt-BR")),
+    customdata: a.map(x=>x.k),
+    hovertemplate: "%{customdata}<br><b>%{x:,.2f}</b><br>Qtd: %{text}<extra></extra>"
+  }];
+
+  const layout={
+    height:h,
+    bargap:0.25,
+    paper_bgcolor:"rgba(0,0,0,0)",
+    plot_bgcolor:"rgba(0,0,0,0)",
+    margin:{l:420,r:20,t:10,b:50},
+    xaxis:{tickformat:",.2f"},
+    yaxis:{automargin:true}
+  };
+
+  Plotly.newPlot(divId, data, layout, {responsive:true});
+  document.getElementById(divId).on('plotly_click', d=>{
+    const label = a[d.points[0].pointIndex].k;
+    DRILL[key] = (DRILL[key]===label) ? null : label;
+    renderAll();
+  });
+}
+
+function renderAll(){
+  renderKPIsAndResumo();
+  renderBadges();
+
+  piePlot("chartAgregacao","AGREGAÇÃO");
+  piePlot("chartReconhecimento","RECONHECIMENTO");
+  piePlot("chartTipo","TIPO");
+  piePlot("chartFonte","FONTE");
+  piePlot("chartEixo","EIXO");
+
+  barPlotHorizontal("chartGestor","GESTOR_SIGLA_NOME");
+  barPlotHorizontal("chartSubeixo","SUBEIXO");
+  barPlotHorizontal("chartFinalidade","FINALIDADE");
+
+  buildTablesForPDF();
+}
+
+/* ---------- PDF (só tabelas) ---------- */
+function buildOneTable(rows, key){
+  const totalValor = rows.reduce((a,r)=>a+r.Valor,0);
+
+  const map = new Map();
+  rows.forEach(r=>{
+    const k = r[key] || "Não informado";
+    if(!map.has(k)) map.set(k,{n:0,val:0});
+    const o = map.get(k);
+    o.n += 1;
+    o.val += r.Valor;
+  });
+
+  const arr = [...map.entries()].map(([k,o])=>{
+    const share = totalValor>0 ? (o.val/totalValor*100) : 0;
+    return {categoria:k, qtd:o.n, valor:o.val, share};
+  }).sort((a,b)=>b.valor-a.valor);
+
+  let html = `<h2>${key}</h2><table class="report"><thead>
+  <tr><th>Categoria</th><th>Quantidade</th><th>Soma (R$)</th><th>% do total (valor)</th></tr>
+  </thead><tbody>`;
+
+  arr.forEach(r=>{
+    html += `<tr>
+      <td>${r.categoria}</td>
+      <td>${r.qtd.toLocaleString("pt-BR")}</td>
+      <td>${BRL(r.valor)}</td>
+      <td>${pct2(r.share)}%</td>
+    </tr>`;
+  });
+
+  html += `</tbody><tfoot><tr>
+    <td><b>TOTAL</b></td>
+    <td><b>${rows.length.toLocaleString("pt-BR")}</b></td>
+    <td><b>${BRL(totalValor)}</b></td>
+    <td><b>100,00%</b></td>
+  </tr></tfoot></table>`;
+
+  return html;
+}
+
+function buildTablesForPDF(){
+  const f = actRows();
+  const keys = ["AGREGAÇÃO","RECONHECIMENTO","TIPO","FONTE","EIXO","GESTOR_SIGLA_NOME","SUBEIXO","FINALIDADE"];
+  const tables = keys.map(k=>buildOneTable(f,k)).join("");
+  const fonte = `<div class="source">Fonte: Brasil Participativo – Governo Federal</div>`;
+  const node = document.getElementById("tables");
+  node.innerHTML = tables + fonte;
+}
+
+function makePDF(){
+  const node = document.getElementById("tables");
+  node.classList.add("show");
+  const opt = {
+    margin: [10,10,10,10],
+    filename: 'relatorio_brasil_participativo_tabelas.pdf',
+    image: { type: 'jpeg', quality: 0.98 },
+    html2canvas: { scale: 2, useCORS: true, background: '#ffffff' },
+    jsPDF: { unit: 'pt', format: 'a4', orientation: 'landscape' }
+  };
+  html2pdf().set(opt).from(node).save().then(()=>{
+    node.classList.remove("show");
+  });
+}
+</script>
+</body>
+</html>
